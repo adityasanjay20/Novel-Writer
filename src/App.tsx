@@ -3,7 +3,7 @@ import { Clock, FileText, Edit3, Save, Play, Pause, BarChart3, BookOpen, Trash2,
 import { DragDropContext, Droppable, Draggable, DropResult } from '@hello-pangea/dnd';
 // --- Firebase Imports ---
 import { initializeApp } from "firebase/app";
-import { getAuth, signInAnonymously, onAuthStateChanged, User, signInWithCustomToken, Auth } from "firebase/auth";
+import { getAuth, signInAnonymously, onAuthStateChanged, User, signInWithCustomToken, Auth, GoogleAuthProvider, signInWithPopup, signOut } from "firebase/auth";
 import { 
     getFirestore, 
     collection, 
@@ -331,6 +331,28 @@ const createNewScene = async () => {
   };
     
   // --- Session, Versioning, and DnD Functions ---
+  const signInWithGoogle = async () => {
+    if (!auth) return;
+    try {
+      const provider = new GoogleAuthProvider();
+      await signInWithPopup(auth, provider);
+    } catch (error) {
+      console.error("Error signing in with Google:", error);
+      alert("Failed to sign in with Google. Please try again.");
+    }
+  };
+
+  const signOutUser = async () => {
+    if (!auth) return;
+    try {
+        await signOut(auth);
+        // After signing out, we sign in a new anonymous user
+        // so they can still use the app without being logged in.
+        await signInAnonymously(auth);
+    } catch (error) {
+        console.error("Error signing out:", error);
+    }
+  };
   const startSession = () => {
     if(!currentProject) return;
     setSessionStartTime(Date.now());
@@ -395,7 +417,29 @@ const createNewScene = async () => {
       <div className="min-h-screen bg-gray-50 p-4 sm:p-6">
         <div className="max-w-4xl mx-auto">
           <div className="bg-white rounded-lg shadow-sm border p-6 sm:p-8">
-            <div className="text-center mb-8"><BookOpen className="w-16 h-16 text-blue-600 mx-auto mb-4" /><h1 className="text-3xl font-bold text-gray-900 mb-2">Novel Writing Studio</h1><p className="text-gray-600">Your personal space to create and manage your stories.</p></div>
+            <div className="text-center mb-8">
+    <BookOpen className="w-16 h-16 text-blue-600 mx-auto mb-4" />
+    <h1 className="text-3xl font-bold text-gray-900 mb-2">Novel Writing Studio</h1>
+    
+    {user && !user.isAnonymous ? (
+        <div className='mt-4'>
+            <p className="text-gray-600">Welcome back, <span className="font-semibold">{user.displayName || 'Writer'}</span>!</p>
+            <button onClick={signOutUser} className="text-sm text-blue-600 hover:underline mt-1">Sign out</button>
+        </div>
+    ) : (
+        <div className='mt-4'>
+            <p className="text-gray-600">Your personal space to create and manage your stories.</p>
+            <button 
+                onClick={signInWithGoogle} 
+                className="mt-4 bg-white text-gray-700 font-semibold px-4 py-2 rounded-lg border hover:bg-gray-100 transition-colors flex items-center gap-2 mx-auto shadow-sm"
+            >
+                <img src="https://www.google.com/images/branding/googlelogo/1x/googlelogo_color_24dp.png" alt="Google logo" className="w-5 h-5"/>
+                Sign in with Google to Sync Devices
+            </button>
+        </div>
+    )}
+
+</div>
             <div className="flex justify-center mb-8"><button onClick={createProject} className="bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-green-600 transition-colors flex items-center gap-2 shadow-sm"><FileText className="w-5 h-5" /> New Project</button></div>
             <div className="space-y-4">
               {projects.map(project => (
