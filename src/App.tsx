@@ -1,6 +1,9 @@
+
 import React, { useState, useEffect, useRef } from 'react';
-import { Clock, FileText, Edit3, Save, Play, Pause, BarChart3, BookOpen, Trash2, ChevronLeft, LogIn, PlusCircle, History, Menu } from 'lucide-react';
+import { Clock, FileText, Edit3, Save, Play, Pause, BarChart3, BookOpen, Trash2, ChevronLeft, LogIn, PlusCircle, History, Menu, Sun, Moon } from 'lucide-react';
 import { DragDropContext, Droppable, Draggable, DropResult } from '@hello-pangea/dnd';
+import TiptapEditor from './TiptapEditor';
+
 // --- Firebase Imports ---
 import { initializeApp } from "firebase/app";
 import { getAuth, signInAnonymously, onAuthStateChanged, User, signInWithCustomToken, Auth, GoogleAuthProvider, signInWithPopup, signOut } from "firebase/auth";
@@ -51,7 +54,7 @@ const appId = process.env.REACT_APP_FIREBASE_APP_ID || 'default-app-id';
 interface Scene {
     id: string;
     title: string;
-    content: string;
+    content: string; 
     wordCount: number;
     createdAt: Timestamp;
 }
@@ -81,9 +84,13 @@ interface Project {
 }
 
 // --- Utility Functions ---
-const countWords = (text: string): number => {
-    if (!text) return 0;
-    return text.trim().split(/\s+/).filter(word => word.length > 0).length;
+const countWords = (htmlContent: string): number => {
+    if (!htmlContent) return 0;
+    const tempDiv = document.createElement("div");
+    tempDiv.innerHTML = htmlContent;
+    const text = tempDiv.textContent || tempDiv.innerText || "";
+    if (text.trim().length === 0) return 0;
+    return text.trim().split(/\s+/).length;
 };
 
 const formatTime = (ms: number): string => {
@@ -112,6 +119,9 @@ export default function NovelWritingApp() {
   const [activeSceneId, setActiveSceneId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   
+  // Theme State
+const [theme, setTheme] = useState<'light' | 'dark'>('dark');
+
   // Editing State
   const [editingSceneId, setEditingSceneId] = useState<string | null>(null);
   const [editingSceneTitle, setEditingSceneTitle] = useState('');
@@ -127,12 +137,24 @@ export default function NovelWritingApp() {
   const [showStats, setShowStats] = useState(false);
   const [showDeleteProjectModal, setShowDeleteProjectModal] = useState<Project | null>(null);
   const [showDeleteSceneModal, setShowDeleteSceneModal] = useState<Scene | null>(null);
-  
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // --- Theme Effect ---
+  useEffect(() => {
+    if (theme === 'dark') {
+      document.documentElement.classList.add('dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+    }
+  }, [theme]);
 
   // --- Firebase Initialization and Auth Effect ---
   useEffect(() => {
     try {
+      if (!firebaseConfig.apiKey) {
+        console.error("Firebase config is missing!");
+        setIsAuthReady(true);
+        return;
+      }
       const app = initializeApp(firebaseConfig);
       const authInstance = getAuth(app);
       const dbInstance = getFirestore(app);
@@ -189,7 +211,7 @@ export default function NovelWritingApp() {
     } else {
         setEditorContent('');
     }
-  }, [activeSceneId, currentProject]);
+  }, [activeSceneId]); // <-- The fix is here
 
   useEffect(() => {
     if (!currentProject || !activeSceneId || isWriting) return;
@@ -229,38 +251,26 @@ export default function NovelWritingApp() {
     } catch (e) { console.error("Error saving scene:", e); return currentProject.totalWords; }
   };
   
-const createNewScene = async () => {
+  const createNewScene = async () => {
     if (!currentProject || !db || !user) return;
     const title = window.prompt("Enter new scene title:", `Scene ${currentProject.scenes.length + 1}`);
     if (!title) return;
-
-    const newScene: Scene = { 
-        id: `scene_${Date.now()}`, 
-        title, 
-        content: '', 
-        wordCount: 0, 
-        createdAt: Timestamp.now() 
-    };
     
+    const newScene: Scene = { id: `scene_${Date.now()}`, title, content: '', wordCount: 0, createdAt: Timestamp.now() };
     const updatedScenes = [...currentProject.scenes, newScene];
-    const originalProjectState = currentProject; // Keep the original state for potential rollback
+    const originalProjectState = currentProject; 
 
-    // --- Optimistic Update ---
-    // Update the UI immediately, assuming the save will succeed.
     setCurrentProject(prev => prev ? { ...prev, scenes: updatedScenes } : null);
     setActiveSceneId(newScene.id);
 
     try {
-        // --- Background Save ---
-        // Save the change to Firebase in the background.
         const projectDocRef = doc(db, `/artifacts/${appId}/users/${user.uid}/projects/${currentProject.id}`);
         await updateDoc(projectDocRef, { scenes: updatedScenes });
     } catch(e) {
         console.error("Error creating new scene:", e);
-        // If the save fails, roll back the UI to the original state.
         alert("Failed to create new scene. Reverting changes.");
         setCurrentProject(originalProjectState);
-        setActiveSceneId(activeSceneId); // Revert to the previously active scene
+        setActiveSceneId(activeSceneId); 
     }
   };
 
@@ -303,7 +313,7 @@ const createNewScene = async () => {
     const name = window.prompt('Enter project name:');
     if (name) {
       try {
-        const firstScene: Scene = { id: `scene_${Date.now()}`, title: 'Chapter 1', content: '', wordCount: 0, createdAt: Timestamp.now() };
+        const firstScene: Scene = { id: `scene_${Date.now()}`, title: 'Scene 1', content: '', wordCount: 0, createdAt: Timestamp.now() };
         const newProjectData = { name, scenes: [firstScene], sessions: [], totalTime: 0, totalWords: 0, createdAt: serverTimestamp(), lastModified: serverTimestamp() };
         const docRef = await addDoc(collection(db, `/artifacts/${appId}/users/${user.uid}/projects`), newProjectData);
         
@@ -330,7 +340,7 @@ const createNewScene = async () => {
     else setActiveSceneId(null);
   };
     
-  // --- Session, Versioning, and DnD Functions ---
+  // --- Auth, Session, Versioning, and DnD Functions ---
   const signInWithGoogle = async () => {
     if (!auth) return;
     try {
@@ -346,13 +356,12 @@ const createNewScene = async () => {
     if (!auth) return;
     try {
         await signOut(auth);
-        // After signing out, we sign in a new anonymous user
-        // so they can still use the app without being logged in.
         await signInAnonymously(auth);
     } catch (error) {
         console.error("Error signing out:", error);
     }
   };
+
   const startSession = () => {
     if(!currentProject) return;
     setSessionStartTime(Date.now());
@@ -384,6 +393,7 @@ const createNewScene = async () => {
     const { sceneId, content } = session.snapshot;
     const sceneIndex = currentProject.scenes.findIndex(s => s.id === sceneId);
     if (sceneIndex === -1) { alert("The original scene for this snapshot no longer exists."); return; }
+    setActiveSceneId(sceneId);
     setEditorContent(content);
     await saveSceneContent(content);
     alert("Scene reverted successfully.");
@@ -410,41 +420,48 @@ const createNewScene = async () => {
   };
 
   // --- Render Logic ---
-  if (isLoading || !isAuthReady) return <div className="flex items-center justify-center min-h-screen bg-gray-50">Loading...</div>;
-  if (!user) return <div className="flex items-center justify-center min-h-screen bg-gray-50">Authenticating...</div>;
+  if (isLoading || !isAuthReady) return <div className="flex items-center justify-center min-h-screen bg-gray-50 dark:bg-gray-900">Loading...</div>;
+  if (!user) return <div className="flex items-center justify-center min-h-screen bg-gray-50 dark:bg-gray-900">Authenticating...</div>;
   if (!currentProject) {
     return (
-      <div className="min-h-screen bg-gray-50 p-4 sm:p-6">
+      <div className="min-h-screen bg-gray-100 dark:bg-gray-900 text-gray-800 dark:text-gray-200 p-4 sm:p-6 transition-colors">
         <div className="max-w-4xl mx-auto">
-          <div className="bg-white rounded-lg shadow-sm border p-6 sm:p-8">
+          <div className="relative bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-6 sm:p-8">
+            <div className="absolute top-4 right-4">
+              <button 
+                  onClick={() => setTheme(theme === 'light' ? 'dark' : 'light')} 
+                  className="p-2 rounded-full hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
+              >
+                  {theme === 'light' ? <Moon size={20} className="text-gray-600 dark:text-gray-300"/> : <Sun size={20} className="text-yellow-400"/>}
+              </button>
+          </div>
             <div className="text-center mb-8">
-    <BookOpen className="w-16 h-16 text-blue-600 mx-auto mb-4" />
-    <h1 className="text-3xl font-bold text-gray-900 mb-2">Novel Writing Studio</h1>
-    
-    {user && !user.isAnonymous ? (
-        <div className='mt-4'>
-            <p className="text-gray-600">Welcome back, <span className="font-semibold">{user.displayName || 'Writer'}</span>!</p>
-            <button onClick={signOutUser} className="text-sm text-blue-600 hover:underline mt-1">Sign out</button>
-        </div>
-    ) : (
-        <div className='mt-4'>
-            <p className="text-gray-600">Your personal space to create and manage your stories.</p>
-            <button 
-                onClick={signInWithGoogle} 
-                className="mt-4 bg-white text-gray-700 font-semibold px-4 py-2 rounded-lg border hover:bg-gray-100 transition-colors flex items-center gap-2 mx-auto shadow-sm"
-            >
-                <img src="https://www.google.com/images/branding/googlelogo/1x/googlelogo_color_24dp.png" alt="Google logo" className="w-5 h-5"/>
-                Sign in with Google to Sync Devices
-            </button>
-        </div>
-    )}
-
-</div>
-            <div className="flex justify-center mb-8"><button onClick={createProject} className="bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-green-600 transition-colors flex items-center gap-2 shadow-sm"><FileText className="w-5 h-5" /> New Project</button></div>
+                <BookOpen className="w-16 h-16 text-blue-600 mx-auto mb-4" />
+                <h1 className="text-3xl font-bold text-gray-900 dark:text-white mb-2">Novel Writing Studio</h1>
+                
+                {user && !user.isAnonymous ? (
+                    <div className='mt-4'>
+                        <p className="text-gray-600 dark:text-gray-300">Welcome back, <span className="font-semibold">{user.displayName || 'Writer'}</span>!</p>
+                        <button onClick={signOutUser} className="text-sm text-blue-500 hover:underline mt-1">Sign out</button>
+                    </div>
+                ) : (
+                    <div className='mt-4'>
+                        <p className="text-gray-600 dark:text-gray-400">Your personal space to create and manage your stories.</p>
+                        <button 
+                            onClick={signInWithGoogle} 
+                            className="mt-4 bg-white dark:bg-gray-700 dark:text-white text-gray-700 font-semibold px-4 py-2 rounded-lg border dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-600 transition-colors flex items-center gap-2 mx-auto shadow-sm"
+                        >
+                            <img src="https://www.google.com/images/branding/googlelogo/1x/googlelogo_color_24dp.png" alt="Google logo" className="w-5 h-5"/>
+                            Sign in with Google to Sync Devices
+                        </button>
+                    </div>
+                )}
+            </div>
+            <div className="flex justify-center mb-8"><button onClick={createProject} className="bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-2 shadow-sm"><FileText className="w-5 h-5" /> New Project</button></div>
             <div className="space-y-4">
               {projects.map(project => (
-                <div key={project.id} className="border rounded-lg p-4 flex justify-between items-center">
-                  <h3 className="font-semibold text-lg">{project.name}</h3>
+                <div key={project.id} className="border dark:border-gray-700 bg-gray-50 dark:bg-gray-900/50 rounded-lg p-4 flex justify-between items-center">
+                  <h3 className="font-semibold text-lg text-gray-800 dark:text-gray-100">{project.name}</h3>
                   <div className="flex items-center gap-2">
                     <button onClick={() => openProject(project)} className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">Open</button>
                     <button onClick={() => setShowDeleteProjectModal(project)} className="bg-red-600 text-white p-2 rounded hover:bg-red-700"><Trash2 size={20} /></button>
@@ -454,7 +471,7 @@ const createNewScene = async () => {
             </div>
           </div>
         </div>
-        {showDeleteProjectModal && (<div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4"><div className="bg-white rounded-lg shadow-xl p-6 w-full max-w-sm"><h2 className="text-lg font-bold text-gray-900">Delete Project?</h2><p className="mt-2 text-sm text-gray-600">Are you sure you want to delete "{showDeleteProjectModal.name}"? This action cannot be undone.</p><div className="mt-6 flex justify-end gap-3"><button onClick={() => setShowDeleteProjectModal(null)} className="px-4 py-2 rounded bg-gray-200 text-gray-800 hover:bg-gray-300">Cancel</button><button onClick={() => deleteProject(showDeleteProjectModal.id)} className="px-4 py-2 rounded bg-red-600 text-white hover:bg-red-700">Delete</button></div></div></div>)}
+        {showDeleteProjectModal && (<div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4"><div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl p-6 w-full max-w-sm"><h2 className="text-lg font-bold text-gray-900 dark:text-white">Delete Project?</h2><p className="mt-2 text-sm text-gray-600 dark:text-gray-300">Are you sure you want to delete "{showDeleteProjectModal.name}"? This action cannot be undone.</p><div className="mt-6 flex justify-end gap-3"><button onClick={() => setShowDeleteProjectModal(null)} className="px-4 py-2 rounded bg-gray-200 dark:bg-gray-600 text-gray-800 dark:text-gray-100 hover:bg-gray-300 dark:hover:bg-gray-500">Cancel</button><button onClick={() => deleteProject(showDeleteProjectModal.id)} className="px-4 py-2 rounded bg-red-600 text-white hover:bg-red-700">Delete</button></div></div></div>)}
       </div>
     );
   }
@@ -464,22 +481,34 @@ const createNewScene = async () => {
   const activeSceneSessions = currentProject.sessions.filter(session => session.snapshot?.sceneId === activeSceneId).sort((a,b) => b.startTime.toMillis() - a.startTime.toMillis());
   const timeOnActiveScene = activeSceneSessions.reduce((sum, session) => sum + session.duration, 0);
 
-
   return (
-    <div className="h-screen w-screen flex flex-col bg-gray-100">
-      <header className="bg-white border-b px-4 py-2 flex-shrink-0 flex justify-between items-center z-10">
-        <button onClick={() => { if(isWriting) endSession(); setCurrentProject(null); }} className="text-gray-600 hover:text-gray-900 flex items-center gap-1.5 p-2 rounded-md hover:bg-gray-100"><ChevronLeft className="w-5 h-5"/> Back</button>
-        <h1 className="text-lg font-semibold text-gray-900 truncate mx-4">{currentProject.name}</h1>
+    <div className="h-screen w-screen flex flex-col bg-gray-100 dark:bg-gray-900 text-gray-800 dark:text-gray-200 transition-colors">
+      <header className="bg-white dark:bg-gray-800 border-b dark:border-gray-700 px-4 py-2 flex-shrink-0 flex justify-between items-center z-10">
+        <button onClick={() => { if(isWriting) endSession(); setCurrentProject(null); }} className="text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white flex items-center gap-1.5 p-2 rounded-md hover:bg-gray-100 dark:hover:bg-gray-700">
+            <ChevronLeft className="w-5 h-5"/> Back
+        </button>
+        <h1 className="text-lg font-semibold text-gray-900 dark:text-white truncate mx-4">{currentProject.name}</h1>
         <div className="flex items-center gap-2">
-            <div className="text-sm text-gray-500 hidden md:flex items-center gap-4 border-r pr-4 mr-2"><span>{currentProject.totalWords} words</span><span className="flex items-center gap-1.5"><Clock size={14}/> {formatTime(sessionTime)}</span></div>
-            <button onClick={() => setShowStats(s => !s)} className={`p-2 rounded transition-colors ${showStats ? 'bg-blue-100 text-blue-700' : 'text-gray-600 hover:bg-gray-100'}`}><BarChart3 size={20}/></button>
-            <button onClick={isWriting ? endSession : startSession} className={`px-4 py-2 rounded flex items-center gap-2 w-36 justify-center ${isWriting ? 'bg-red-500 text-white' : 'bg-green-500 text-white'}`}>{isWriting ? <Pause size={16}/> : <Play size={16}/>}{isWriting ? 'End Session' : 'Start Session'}</button>
+            <div className="text-sm text-gray-500 dark:text-gray-400 hidden md:flex items-center gap-4 border-r dark:border-gray-600 pr-4 mr-2">
+                <span>{currentProject.totalWords.toLocaleString()} words</span>
+                <span className="flex items-center gap-1.5"><Clock size={14}/> {formatTime(sessionTime)}</span>
+            </div>
+            <button onClick={() => setTheme(theme === 'light' ? 'dark' : 'light')} className="p-2 rounded-full hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors">
+                {theme === 'light' ? <Moon size={20} className="text-gray-600"/> : <Sun size={20} className="text-yellow-400"/>}
+            </button>
+            <button onClick={() => setShowStats(s => !s)} className={`p-2 rounded transition-colors ${showStats ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/50' : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'}`}>
+                <BarChart3 size={20}/>
+            </button>
+            <button onClick={isWriting ? endSession : startSession} className={`px-4 py-2 rounded flex items-center gap-2 w-36 justify-center ${isWriting ? 'bg-red-500 text-white' : 'bg-green-500 text-white'}`}>
+              {isWriting ? <Pause size={16}/> : <Play size={16}/>}
+              {isWriting ? 'End Session' : 'Start Session'}
+            </button>
         </div>
       </header>
       
       <div className="flex-grow flex overflow-hidden relative">
-        <aside className="w-64 h-full bg-gray-50 border-r flex flex-col overflow-y-auto">
-            <div className="p-2 border-b"><button onClick={createNewScene} className="w-full bg-blue-500 text-white px-3 py-2 rounded hover:bg-blue-600 flex items-center justify-center gap-2"><PlusCircle className="w-5 h-5"/> New Scene</button></div>
+        <aside className="w-64 h-full bg-gray-50 dark:bg-gray-900/50 border-r dark:border-gray-700 flex flex-col overflow-y-auto">
+            <div className="p-2 border-b dark:border-gray-700"><button onClick={createNewScene} className="w-full bg-blue-600 text-white px-3 py-2 rounded hover:bg-blue-700 flex items-center justify-center gap-2"><PlusCircle className="w-5 h-5"/> New Scene</button></div>
             <DragDropContext onDragEnd={onDragEnd}>
               <Droppable droppableId="scenes">
                 {(provided) => (
@@ -487,16 +516,16 @@ const createNewScene = async () => {
                       {currentProject.scenes?.map((scene, index) => (
                           <Draggable key={scene.id} draggableId={scene.id} index={index}>
                               {(provided, snapshot) => (
-                                  <li ref={provided.innerRef} {...provided.draggableProps} className={`group relative rounded-md ${snapshot.isDragging ? 'shadow-lg bg-white' : ''}`}>
+                                  <li ref={provided.innerRef} {...provided.draggableProps} className={`group relative rounded-md ${snapshot.isDragging ? 'shadow-lg bg-white dark:bg-gray-700' : ''}`}>
                                       {editingSceneId === scene.id ? (
-                                          <input type="text" value={editingSceneTitle} onChange={(e) => setEditingSceneTitle(e.target.value)} onBlur={handleRenameScene} onKeyDown={(e) => e.key === 'Enter' && handleRenameScene()} className="w-full p-2 rounded border border-blue-500" autoFocus/>
+                                          <input type="text" value={editingSceneTitle} onChange={(e) => setEditingSceneTitle(e.target.value)} onBlur={handleRenameScene} onKeyDown={(e) => e.key === 'Enter' && handleRenameScene()} className="w-full p-2 rounded border border-blue-500 bg-white dark:bg-gray-800 dark:text-white" autoFocus/>
                                       ) : (
-                                          <div className={`w-full text-left p-2 rounded-md transition-colors flex justify-between items-center ${activeSceneId === scene.id ? 'bg-blue-600 text-white shadow-md' : 'hover:bg-gray-200'}`}>
+                                          <div className={`w-full text-left p-2 rounded-md transition-colors flex justify-between items-center ${activeSceneId === scene.id ? 'bg-blue-600 text-white shadow-md' : 'hover:bg-gray-200 dark:hover:bg-gray-700'}`}>
                                               <div className="flex items-center gap-2 flex-grow min-w-0" onDoubleClick={() => {setEditingSceneId(scene.id); setEditingSceneTitle(scene.title);}}>
                                                 <div {...provided.dragHandleProps} className="p-1 cursor-grab"><Menu size={16} /></div>
                                                 <div className="flex-grow min-w-0">
                                                     <span className="font-medium truncate block">{scene.title}</span>
-                                                    <span className={`text-xs block ${activeSceneId === scene.id ? 'text-blue-200' : 'text-gray-500'}`}>{scene.wordCount} words</span>
+                                                    <span className={`text-xs block ${activeSceneId === scene.id ? 'text-blue-200' : 'text-gray-500 dark:text-gray-400'}`}>{scene.wordCount} words</span>
                                                 </div>
                                               </div>
                                               <button onClick={(e) => { e.stopPropagation(); setShowDeleteSceneModal(scene); }} className="p-1 rounded-full text-gray-500 hover:bg-red-500 hover:text-white opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
@@ -516,18 +545,23 @@ const createNewScene = async () => {
         </aside>
 
         <main className={`flex-grow h-full flex flex-col transition-all duration-300 ${showStats ? 'mr-80' : ''}`}>
-            <textarea ref={textareaRef} value={editorContent} onChange={(e) => setEditorContent(e.target.value)} placeholder="Select a scene to start writing..." className="w-full h-full p-8 lg:p-12 resize-none border-none outline-none text-lg leading-relaxed bg-white" disabled={!activeSceneId}/>
+             <TiptapEditor
+                key={activeSceneId || 'no-scene'} 
+                content={editorContent}
+                onChange={setEditorContent}
+                disabled={!activeSceneId}
+            />
         </main>
 
-        {showDeleteSceneModal && (<div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4"><div className="bg-white rounded-lg shadow-xl p-6 w-full max-w-sm"><h2 className="text-lg font-bold text-gray-900">Delete Scene?</h2><p className="mt-2 text-sm text-gray-600">Are you sure you want to delete "{showDeleteSceneModal.title}"? This cannot be undone.</p><div className="mt-6 flex justify-end gap-3"><button onClick={() => setShowDeleteSceneModal(null)} className="px-4 py-2 rounded bg-gray-200 text-gray-800 hover:bg-gray-300">Cancel</button><button onClick={() => deleteScene(showDeleteSceneModal)} className="px-4 py-2 rounded bg-red-600 text-white hover:bg-red-700">Delete</button></div></div></div>)}
+        {showDeleteSceneModal && (<div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4"><div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl p-6 w-full max-w-sm"><h2 className="text-lg font-bold text-gray-900 dark:text-white">Delete Scene?</h2><p className="mt-2 text-sm text-gray-600 dark:text-gray-300">Are you sure you want to delete "{showDeleteSceneModal.title}"? This cannot be undone.</p><div className="mt-6 flex justify-end gap-3"><button onClick={() => setShowDeleteSceneModal(null)} className="px-4 py-2 rounded bg-gray-200 dark:bg-gray-600 text-gray-800 dark:text-gray-100 hover:bg-gray-300 dark:hover:bg-gray-500">Cancel</button><button onClick={() => deleteScene(showDeleteSceneModal)} className="px-4 py-2 rounded bg-red-600 text-white hover:bg-red-700">Delete</button></div></div></div>)}
 
-        <aside className={`fixed top-14 right-0 h-[calc(100%-3.5rem)] w-80 bg-white border-l shadow-lg overflow-y-auto transform transition-transform duration-300 ease-in-out z-20 ${showStats ? 'translate-x-0' : 'translate-x-full'}`}>
+        <aside className={`fixed top-14 right-0 h-[calc(100%-3.5rem)] w-80 bg-white dark:bg-gray-800 border-l dark:border-gray-700 shadow-lg overflow-y-auto transform transition-transform duration-300 ease-in-out z-20 ${showStats ? 'translate-x-0' : 'translate-x-full'}`}>
             <div className="p-6">
-                <h2 className="text-lg font-semibold text-gray-900 mb-4">Statistics</h2>
+                <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Statistics</h2>
                 <div className="space-y-6">
-                  <div className="bg-gray-50 rounded-lg p-4"><h3 className="font-medium text-gray-900 mb-2">Overall Project</h3><div className="space-y-2 text-sm"><div className="flex justify-between"><span>Total Words:</span><span className="font-medium">{currentProject.totalWords.toLocaleString()}</span></div><div className="flex justify-between"><span>Total Scenes:</span><span className="font-medium">{currentProject.scenes.length}</span></div><div className="flex justify-between"><span>Total Time:</span><span className="font-medium">{formatTime(currentProject.totalTime)}</span></div><div className="flex justify-between"><span>Total Sessions:</span><span className="font-medium">{currentProject.sessions.length}</span></div></div></div>
-                  {activeScene && (<div className="bg-blue-50 rounded-lg p-4 ring-1 ring-blue-200"><h3 className="font-medium text-blue-900 mb-2 truncate">Active Scene: {activeScene.title}</h3><div className="space-y-2 text-sm text-blue-800"><div className="flex justify-between"><span>Word Count:</span><span className="font-medium">{activeScene.wordCount.toLocaleString()}</span></div><div className="flex justify-between"><span>Time Spent Here:</span><span className="font-medium">{formatTime(timeOnActiveScene)}</span></div><div className="flex justify-between"><span>Sessions Here:</span><span className="font-medium">{activeSceneSessions.length}</span></div></div></div>)}
-                  <div className="bg-gray-50 rounded-lg p-4"><h3 className="font-medium text-gray-900 mb-2">Snapshots for this Scene</h3>{activeSceneSessions.length > 0 ? (<div className="space-y-3 max-h-60 overflow-y-auto">{activeSceneSessions.map(session => (<div key={session.id} className="text-sm border-b border-gray-200 pb-2 last:border-b-0"><div className="flex justify-between items-center"><div><span className="font-medium text-gray-700">{new Date(session.startTime.toDate()).toLocaleString()}</span><div className="text-gray-600 text-xs mt-1">{formatTime(session.duration)} | {session.wordsWritten} words</div></div><button onClick={() => revertToSnapshot(session)} title="Revert to this version" className="p-1.5 bg-gray-200 rounded hover:bg-indigo-200 transition-colors"><History size={14} className="text-gray-600"/></button></div></div>))}</div>) : (<div className="text-center text-sm text-gray-500 py-4"><p>No writing history for this scene yet. Start a session to create your first snapshot!</p></div>)}</div>
+                  <div className="bg-gray-100 dark:bg-gray-700/50 rounded-lg p-4"><h3 className="font-medium text-gray-900 dark:text-gray-100 mb-2">Overall Project</h3><div className="space-y-2 text-sm text-gray-600 dark:text-gray-300"><div className="flex justify-between"><span>Total Words:</span><span className="font-medium text-gray-800 dark:text-gray-100">{currentProject.totalWords.toLocaleString()}</span></div><div className="flex justify-between"><span>Total Scenes:</span><span className="font-medium text-gray-800 dark:text-gray-100">{currentProject.scenes.length}</span></div><div className="flex justify-between"><span>Total Time:</span><span className="font-medium text-gray-800 dark:text-gray-100">{formatTime(currentProject.totalTime)}</span></div><div className="flex justify-between"><span>Total Sessions:</span><span className="font-medium text-gray-800 dark:text-gray-100">{currentProject.sessions.length}</span></div></div></div>
+                  {activeScene && (<div className="bg-blue-100 dark:bg-blue-900/50 rounded-lg p-4 ring-1 ring-blue-200 dark:ring-blue-800"><h3 className="font-medium text-blue-900 dark:text-blue-200 mb-2 truncate">Active Scene: {activeScene.title}</h3><div className="space-y-2 text-sm text-blue-800 dark:text-blue-300"><div className="flex justify-between"><span>Word Count:</span><span className="font-medium text-blue-900 dark:text-blue-200">{activeScene.wordCount.toLocaleString()}</span></div><div className="flex justify-between"><span>Time Spent Here:</span><span className="font-medium text-blue-900 dark:text-blue-200">{formatTime(timeOnActiveScene)}</span></div><div className="flex justify-between"><span>Sessions Here:</span><span className="font-medium text-blue-900 dark:text-blue-200">{activeSceneSessions.length}</span></div></div></div>)}
+                  <div className="bg-gray-100 dark:bg-gray-700/50 rounded-lg p-4"><h3 className="font-medium text-gray-900 dark:text-gray-100 mb-2">Snapshots for this Scene</h3>{activeSceneSessions.length > 0 ? (<div className="space-y-3 max-h-60 overflow-y-auto">{activeSceneSessions.map(session => (<div key={session.id} className="text-sm border-b border-gray-200 dark:border-gray-600 pb-2 last:border-b-0"><div className="flex justify-between items-center"><div><span className="font-medium text-gray-700 dark:text-gray-200">{new Date(session.startTime.toDate()).toLocaleString()}</span><div className="text-gray-600 dark:text-gray-400 text-xs mt-1">{formatTime(session.duration)} | {session.wordsWritten} words</div></div><button onClick={() => revertToSnapshot(session)} title="Revert to this version" className="p-1.5 bg-gray-200 dark:bg-gray-600 rounded hover:bg-indigo-200 dark:hover:bg-indigo-500 transition-colors"><History size={14} className="text-gray-600 dark:text-gray-300"/></button></div></div>))}</div>) : (<div className="text-center text-sm text-gray-500 py-4"><p>No writing history for this scene yet.</p></div>)}</div>
                 </div>
               </div>
         </aside>
