@@ -138,6 +138,8 @@ const [theme, setTheme] = useState<'light' | 'dark'>('dark');
   const [showDeleteProjectModal, setShowDeleteProjectModal] = useState<Project | null>(null);
   const [showDeleteSceneModal, setShowDeleteSceneModal] = useState<Scene | null>(null);
 
+  const projectRef = useRef(currentProject); // <-- ADD THIS LINE
+
   // --- Theme Effect ---
   useEffect(() => {
     if (theme === 'dark') {
@@ -203,7 +205,7 @@ const [theme, setTheme] = useState<'light' | 'dark'>('dark');
     }
   }, [isAuthReady, user, db]);
 
-  // --- Scene and Session Effects ---
+// --- Scene and Session Effects ---
   useEffect(() => {
     if (activeSceneId && currentProject) {
         const activeScene = currentProject.scenes.find(scene => scene.id === activeSceneId);
@@ -211,7 +213,7 @@ const [theme, setTheme] = useState<'light' | 'dark'>('dark');
     } else {
         setEditorContent('');
     }
-  }, [activeSceneId]); // <-- The fix is here
+  }, [activeSceneId, currentProject]);
 
   useEffect(() => {
     if (!currentProject || !activeSceneId || isWriting) return;
@@ -251,26 +253,40 @@ const [theme, setTheme] = useState<'light' | 'dark'>('dark');
     } catch (e) { console.error("Error saving scene:", e); return currentProject.totalWords; }
   };
   
-  const createNewScene = async () => {
+const createNewScene = async () => {
     if (!currentProject || !db || !user) return;
     const title = window.prompt("Enter new scene title:", `Scene ${currentProject.scenes.length + 1}`);
     if (!title) return;
+
+    // --- The Fix: Manually clear the editor state first ---
+    setEditorContent('');
+
+    const newScene: Scene = { 
+        id: `scene_${Date.now()}`, 
+        title, 
+        content: '', // Ensure the new scene's data is also blank
+        wordCount: 0, 
+        createdAt: Timestamp.now() 
+    };
     
-    const newScene: Scene = { id: `scene_${Date.now()}`, title, content: '', wordCount: 0, createdAt: Timestamp.now() };
     const updatedScenes = [...currentProject.scenes, newScene];
     const originalProjectState = currentProject; 
 
+    // Optimistic UI Update
     setCurrentProject(prev => prev ? { ...prev, scenes: updatedScenes } : null);
     setActiveSceneId(newScene.id);
 
     try {
+        // Background Save
         const projectDocRef = doc(db, `/artifacts/${appId}/users/${user.uid}/projects/${currentProject.id}`);
         await updateDoc(projectDocRef, { scenes: updatedScenes });
     } catch(e) {
         console.error("Error creating new scene:", e);
         alert("Failed to create new scene. Reverting changes.");
         setCurrentProject(originalProjectState);
-        setActiveSceneId(activeSceneId); 
+        // If the creation fails, we must restore the previous editor content
+        const previousScene = originalProjectState.scenes.find(s => s.id === activeSceneId);
+        setEditorContent(previousScene?.content || '');
     }
   };
 
@@ -483,28 +499,30 @@ const [theme, setTheme] = useState<'light' | 'dark'>('dark');
 
   return (
     <div className="h-screen w-screen flex flex-col bg-gray-100 dark:bg-gray-900 text-gray-800 dark:text-gray-200 transition-colors">
-      <header className="bg-white dark:bg-gray-800 border-b dark:border-gray-700 px-4 py-2 flex-shrink-0 flex justify-between items-center z-10">
-        <button onClick={() => { if(isWriting) endSession(); setCurrentProject(null); }} className="text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white flex items-center gap-1.5 p-2 rounded-md hover:bg-gray-100 dark:hover:bg-gray-700">
-            <ChevronLeft className="w-5 h-5"/> Back
-        </button>
-        <h1 className="text-lg font-semibold text-gray-900 dark:text-white truncate mx-4">{currentProject.name}</h1>
-        <div className="flex items-center gap-2">
-            <div className="text-sm text-gray-500 dark:text-gray-400 hidden md:flex items-center gap-4 border-r dark:border-gray-600 pr-4 mr-2">
-                <span>{currentProject.totalWords.toLocaleString()} words</span>
-                <span className="flex items-center gap-1.5"><Clock size={14}/> {formatTime(sessionTime)}</span>
-            </div>
-            <button onClick={() => setTheme(theme === 'light' ? 'dark' : 'light')} className="p-2 rounded-full hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors">
-                {theme === 'light' ? <Moon size={20} className="text-gray-600"/> : <Sun size={20} className="text-yellow-400"/>}
-            </button>
-            <button onClick={() => setShowStats(s => !s)} className={`p-2 rounded transition-colors ${showStats ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/50' : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'}`}>
-                <BarChart3 size={20}/>
-            </button>
-            <button onClick={isWriting ? endSession : startSession} className={`px-4 py-2 rounded flex items-center gap-2 w-36 justify-center ${isWriting ? 'bg-red-500 text-white' : 'bg-green-500 text-white'}`}>
-              {isWriting ? <Pause size={16}/> : <Play size={16}/>}
-              {isWriting ? 'End Session' : 'Start Session'}
-            </button>
+      <header className="bg-white dark:bg-gray-800 border-b dark:border-gray-700 px-4 py-2 flex-shrink-0 flex items-center z-10">
+    <button onClick={() => { if(isWriting) endSession(); setCurrentProject(null); }} className="text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white flex items-center gap-1.5 p-2 rounded-md hover:bg-gray-100 dark:hover:bg-gray-700 flex-shrink-0">
+        <ChevronLeft className="w-5 h-5"/> Back
+    </button>
+    
+    <h1 className="text-lg font-semibold text-gray-900 dark:text-white truncate text-center mx-4 flex-1 min-w-0">{currentProject.name}</h1>
+    
+    <div className="flex items-center gap-2 flex-shrink-0">
+        <div className="text-sm text-gray-500 dark:text-gray-400 hidden md:flex items-center gap-4 border-r dark:border-gray-600 pr-4 mr-2">
+            <span>{currentProject.totalWords.toLocaleString()} words</span>
+            <span className="flex items-center gap-1.5"><Clock size={14}/> {formatTime(sessionTime)}</span>
         </div>
-      </header>
+        <button onClick={() => setTheme(theme === 'light' ? 'dark' : 'light')} className="p-2 rounded-full hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors">
+            {theme === 'light' ? <Moon size={20} className="text-gray-600"/> : <Sun size={20} className="text-yellow-400"/>}
+        </button>
+        <button onClick={() => setShowStats(s => !s)} className={`p-2 rounded transition-colors ${showStats ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/50' : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'}`}>
+            <BarChart3 size={20}/>
+        </button>
+        <button onClick={isWriting ? endSession : startSession} className={`px-4 py-2 rounded flex items-center gap-2 w-36 justify-center ${isWriting ? 'bg-red-500 text-white' : 'bg-green-500 text-white'}`}>
+          {isWriting ? <Pause size={16}/> : <Play size={16}/>}
+          {isWriting ? 'End Session' : 'Start Session'}
+        </button>
+    </div>
+</header>
       
       <div className="flex-grow flex overflow-hidden relative">
         <aside className="w-64 h-full bg-gray-50 dark:bg-gray-900/50 border-r dark:border-gray-700 flex flex-col overflow-y-auto">
@@ -521,7 +539,11 @@ const [theme, setTheme] = useState<'light' | 'dark'>('dark');
                                           <input type="text" value={editingSceneTitle} onChange={(e) => setEditingSceneTitle(e.target.value)} onBlur={handleRenameScene} onKeyDown={(e) => e.key === 'Enter' && handleRenameScene()} className="w-full p-2 rounded border border-blue-500 bg-white dark:bg-gray-800 dark:text-white" autoFocus/>
                                       ) : (
                                           <div className={`w-full text-left p-2 rounded-md transition-colors flex justify-between items-center ${activeSceneId === scene.id ? 'bg-blue-600 text-white shadow-md' : 'hover:bg-gray-200 dark:hover:bg-gray-700'}`}>
-                                              <div className="flex items-center gap-2 flex-grow min-w-0" onDoubleClick={() => {setEditingSceneId(scene.id); setEditingSceneTitle(scene.title);}}>
+                                              <div 
+                                                  onClick={() => setActiveSceneId(scene.id)}
+                                                  className={`w-full text-left p-2 rounded-md transition-colors flex justify-between items-center cursor-pointer ${activeSceneId === scene.id ? 'bg-blue-600 text-white shadow-md' : 'hover:bg-gray-200 dark:hover:bg-gray-700'}`}
+                                                  onDoubleClick={() => {setEditingSceneId(scene.id); setEditingSceneTitle(scene.title);}}
+                                              >
                                                 <div {...provided.dragHandleProps} className="p-1 cursor-grab"><Menu size={16} /></div>
                                                 <div className="flex-grow min-w-0">
                                                     <span className="font-medium truncate block">{scene.title}</span>
@@ -545,12 +567,12 @@ const [theme, setTheme] = useState<'light' | 'dark'>('dark');
         </aside>
 
         <main className={`flex-grow h-full flex flex-col transition-all duration-300 ${showStats ? 'mr-80' : ''}`}>
-             <TiptapEditor
-                key={activeSceneId || 'no-scene'} 
-                content={editorContent}
-                onChange={setEditorContent}
-                disabled={!activeSceneId}
-            />
+          <TiptapEditor
+              key={activeSceneId || 'no-scene'}
+              content={editorContent}
+              onChange={setEditorContent}
+              disabled={!activeSceneId}
+          />
         </main>
 
         {showDeleteSceneModal && (<div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4"><div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl p-6 w-full max-w-sm"><h2 className="text-lg font-bold text-gray-900 dark:text-white">Delete Scene?</h2><p className="mt-2 text-sm text-gray-600 dark:text-gray-300">Are you sure you want to delete "{showDeleteSceneModal.title}"? This cannot be undone.</p><div className="mt-6 flex justify-end gap-3"><button onClick={() => setShowDeleteSceneModal(null)} className="px-4 py-2 rounded bg-gray-200 dark:bg-gray-600 text-gray-800 dark:text-gray-100 hover:bg-gray-300 dark:hover:bg-gray-500">Cancel</button><button onClick={() => deleteScene(showDeleteSceneModal)} className="px-4 py-2 rounded bg-red-600 text-white hover:bg-red-700">Delete</button></div></div></div>)}

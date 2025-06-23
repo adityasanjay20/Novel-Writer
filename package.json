@@ -8,6 +8,7 @@
     "@testing-library/jest-dom": "^6.6.3",
     "@testing-library/react": "^16.3.0",
     "@testing-library/user-event": "^13.5.0",
+    "@tiptap/extension-placeholder": "^2.22.3",
     "@tiptap/react": "^2.22.3",
     "@tiptap/starter-kit": "^2.22.3",
     "@types/jest": "^27.5.2",

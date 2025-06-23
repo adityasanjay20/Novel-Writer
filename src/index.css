@@ -70,3 +70,12 @@
 .tiptap s {
   text-decoration: line-through;
 }
+
+/* Style for the Tiptap editor's placeholder text */
+.tiptap p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  float: left;
+  color: #adb5bd; /* A light gray color */
+  pointer-events: none;
+  height: 0;
+}

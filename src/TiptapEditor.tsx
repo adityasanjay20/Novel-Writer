@@ -1,27 +1,26 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useEffect } from 'react';
 import { useEditor, EditorContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import { Bold, Italic, Strikethrough, Pilcrow, Heading1, Heading2, List, ListOrdered } from 'lucide-react';
-
-// src/TiptapEditor.tsx
+import Placeholder from '@tiptap/extension-placeholder';
 
 const MenuBar = ({ editor }: { editor: any }) => {
   if (!editor) {
     return null;
   }
 
-  const menuButtonClass = "p-2 rounded hover:bg-gray-200 dark:hover:bg-gray-700";
+  const menuButtonClass = "p-2 rounded hover:bg-gray-200 dark:hover:bg-gray-700 disabled:opacity-50";
   const activeMenuButtonClass = "bg-gray-300 dark:bg-gray-600";
 
   return (
     <div className="p-2 border-b dark:border-gray-700 flex flex-wrap items-center gap-1">
-      <button onClick={() => editor.chain().focus().toggleBold().run()} className={`${menuButtonClass} ${editor.isActive('bold') ? activeMenuButtonClass : ''}`} title="Bold">
+      <button onClick={() => editor.chain().focus().toggleBold().run()} disabled={!editor.can().chain().focus().toggleBold().run()} className={`${menuButtonClass} ${editor.isActive('bold') ? activeMenuButtonClass : ''}`} title="Bold">
         <Bold size={18} />
       </button>
-      <button onClick={() => editor.chain().focus().toggleItalic().run()} className={`${menuButtonClass} ${editor.isActive('italic') ? activeMenuButtonClass : ''}`} title="Italic">
+      <button onClick={() => editor.chain().focus().toggleItalic().run()} disabled={!editor.can().chain().focus().toggleItalic().run()} className={`${menuButtonClass} ${editor.isActive('italic') ? activeMenuButtonClass : ''}`} title="Italic">
         <Italic size={18} />
       </button>
-      <button onClick={() => editor.chain().focus().toggleStrike().run()} className={`${menuButtonClass} ${editor.isActive('strike') ? activeMenuButtonClass : ''}`} title="Strikethrough">
+      <button onClick={() => editor.chain().focus().toggleStrike().run()} disabled={!editor.can().chain().focus().toggleStrike().run()} className={`${menuButtonClass} ${editor.isActive('strike') ? activeMenuButtonClass : ''}`} title="Strikethrough">
         <Strikethrough size={18} />
       </button>
       <div className="w-[1px] h-6 bg-gray-300 dark:bg-gray-600 mx-1"></div>
@@ -53,22 +52,25 @@ interface TiptapEditorProps {
 
 const TiptapEditor: React.FC<TiptapEditorProps> = ({ content, onChange, disabled }) => {
   const editor = useEditor({
-    extensions: [StarterKit],
-    content: content,
+    extensions: [
+      StarterKit,
+      Placeholder.configure({
+        placeholder: 'Start writing your scene here...',
+      }),
+  ],
+  content: content,
     editable: !disabled,
     onUpdate: ({ editor }) => {
       onChange(editor.getHTML());
     },
   });
 
-  // Effect to update editor content when the scene changes
   useEffect(() => {
     if (editor && !editor.isDestroyed && editor.getHTML() !== content) {
-        editor.commands.setContent(content);
+        editor.commands.setContent(content, false); // `false` prevents the cursor from jumping
     }
   }, [content, editor]);
   
-  // Effect to update editable status
   useEffect(() => {
     if (editor && !editor.isDestroyed) {
         editor.setEditable(!disabled);
